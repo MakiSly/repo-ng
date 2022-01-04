@@ -26,7 +26,7 @@ namespace repo {
 
 NDN_LOG_INIT(repo.WriteHandle);
 
-static const int DEFAULT_CREDIT = 12;
+static const int DEFAULT_CREDIT = 100;
 static const bool DEFAULT_CANBE_PREFIX = false;
 static const milliseconds MAX_TIMEOUT(60_s);
 static const milliseconds NOEND_TIMEOUT(10000_ms);
@@ -71,10 +71,14 @@ WriteHandle::handleInsertCommand(const Name& prefix, const Interest& interest,
   RepoCommandParameter* repoParameter =
     dynamic_cast<RepoCommandParameter*>(const_cast<ndn::mgmt::ControlParameters*>(&parameter));
   if (repoParameter->hasStartBlockId() || repoParameter->hasEndBlockId()) {
+    //##############################
+    //large file
     std::cout<<"processSegmentedInsertCommand"<<repoParameter->hasStartBlockId()<<std::endl;
     processSegmentedInsertCommand(interest, *repoParameter, done);
   }
   else {
+    //##############################
+    //small file
     std::cout<<"processSingleInsertCommand"<<std::endl;
     processSingleInsertCommand(interest, *repoParameter, done);
   }
@@ -140,9 +144,9 @@ WriteHandle::processSingleInsertCommand(const Interest& interest, RepoCommandPar
                        std::bind(&WriteHandle::onTimeout, this, _1, processId), // Nack
                        std::bind(&WriteHandle::onTimeout, this, _1, processId));
 }
-
+////////////////////////////////////////////////////////////////////////
 void
-WriteHandle::segInit(ProcessId processId, const RepoCommandParameter& parameter)
+WriteHandle::segInit(ProcessId processId, const RepoCommandParameter& parameter, const ndn::mgmt::CommandContinuation& done)
 {
   // use SegmentFetcher to send fetch interest.
   ProcessInfo& process = m_processes[processId];
@@ -174,14 +178,14 @@ WriteHandle::segInit(ProcessId processId, const RepoCommandParameter& parameter)
   auto fetcher = ndn::util::SegmentFetcher::start(face, interest, m_validator, options);
   fetcher->onError.connect([] (uint32_t errorCode, const std::string& errorMsg)
                            {NDN_LOG_ERROR("Error: " << errorMsg);});
-  fetcher->afterSegmentValidated.connect([this, &fetcher, processId] (const Data& data)
-                                         {onSegmentData(*fetcher, data, processId);});
+  fetcher->afterSegmentValidated.connect([this, &fetcher,done, processId] (const Data& data)
+                                         {onSegmentData(*fetcher, data, processId, done);});
   fetcher->afterSegmentTimedOut.connect([this, &fetcher, processId] ()
                                         {onSegmentTimeout(*fetcher, processId);});
 }
 
 void
-WriteHandle::onSegmentData(ndn::util::SegmentFetcher& fetcher, const Data& data, ProcessId processId)
+WriteHandle::onSegmentData(ndn::util::SegmentFetcher& fetcher, const Data& data, ProcessId processId,const ndn::mgmt::CommandContinuation& done)
 {
   std::cout<<"received Fetched data"<<data<<"processId"<<processId<<std::endl;
   auto it = m_processes.find(processId);
@@ -192,6 +196,7 @@ WriteHandle::onSegmentData(ndn::util::SegmentFetcher& fetcher, const Data& data,
 
   RepoCommandResponse& response = it->second.response;
 
+
   if (storageHandle.insertData(data)) {
     response.setInsertNum(response.getInsertNum() + 1);
   }
@@ -201,7 +206,7 @@ WriteHandle::onSegmentData(ndn::util::SegmentFetcher& fetcher, const Data& data,
   }
 
   ProcessInfo& process = m_processes[processId];
-  //read whether notime timeout
+  //read whether no time timeout
   if (!response.hasEndBlockId()) {
     ndn::time::steady_clock::TimePoint& noEndTime = process.noEndTime;
     ndn::time::steady_clock::TimePoint now = ndn::time::steady_clock::now();
@@ -211,6 +216,7 @@ WriteHandle::onSegmentData(ndn::util::SegmentFetcher& fetcher, const Data& data,
       response.setCode(405);
       //schedule a delete event
       deferredDeleteProcess(processId);
+      std::cout<<"Stopped fetcher"<<std::endl;
       fetcher.stop();
       return;
     }
@@ -221,8 +227,12 @@ WriteHandle::onSegmentData(ndn::util::SegmentFetcher& fetcher, const Data& data,
     if (response.getInsertNum() >= nSegments) {
       //All the data has been inserted, StatusCode is refreshed as 200
       response.setCode(200);
-      deferredDeleteProcess(processId);
-      fetcher.stop();
+      response.setProcessId(processId);
+      response.setBody(response.wireEncode());
+      done(response);
+      //deferredDeleteProcess(processId);
+      std::cout<<"Stopped fetcher02"<<std::endl;
+      //fetcher.stop();
       return;
     }
   }
@@ -231,6 +241,7 @@ WriteHandle::onSegmentData(ndn::util::SegmentFetcher& fetcher, const Data& data,
 void
 WriteHandle::onSegmentTimeout(ndn::util::SegmentFetcher& fetcher, ProcessId processId)
 {
+  std::cout<<"SegTimeout"<<std::endl;
   NDN_LOG_DEBUG("SegTimeout");
   if (m_processes.count(processId) == 0) {
     fetcher.stop();
@@ -246,7 +257,6 @@ WriteHandle::processSegmentedInsertCommand(const Interest& interest, RepoCommand
 {
   std::cout<<"parameter.hasEndBlockId()"<<parameter.hasEndBlockId()<<std::endl;
   if (parameter.hasEndBlockId()) {
-    
     //normal fetch segment
     SegmentNo startBlockId = parameter.hasStartBlockId() ? parameter.getStartBlockId() : 0;
     std::cout<<"startBlockId"<<startBlockId<<std::endl;
@@ -278,7 +288,7 @@ WriteHandle::processSegmentedInsertCommand(const Interest& interest, RepoCommand
     //300 means data fetching is in progress
     response.setCode(300);
 
-    segInit(processId, parameter);
+    segInit(processId, parameter,done);
   }
   else {
     //no EndBlockId, so fetch FinalBlockId in data, if timeout, stop
@@ -295,9 +305,10 @@ WriteHandle::processSegmentedInsertCommand(const Interest& interest, RepoCommand
     //300 means data fetching is in progress
     response.setCode(300);
 
-    segInit(processId, parameter);
+    segInit(processId, parameter,done);
   }
 }
+////////////////////////////////////////////////////////////////////////
 
 void
 WriteHandle::handleCheckCommand(const Name& prefix, const Interest& interest,

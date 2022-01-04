@@ -196,10 +196,10 @@ SqliteStorage::find(const Name& name, bool exactMatch)
   }
 
   if (result == SQLITE_OK) {
+    //std::cout<<"DB execute success" <<std::endl;
     int rc = stmt.step();
     if (rc == SQLITE_ROW) {
       Name foundName;
-
       auto data = std::make_shared<Data>();
       try {
         data->wireDecode(stmt.getBlock(1));
@@ -211,9 +211,7 @@ SqliteStorage::find(const Name& name, bool exactMatch)
       }
       NDN_LOG_DEBUG("Data from db: " << *data);
       std::cout<<"Data from db: " << *data<<std::endl;
-
       foundName = data->getFullName();
-
       if ((exactMatch && name == foundName) || (!exactMatch && name.isPrefixOf(foundName))) {
         std::cout<<"Found: " << foundName << " " << stmt.getInt(0)<<std::endl;
         NDN_LOG_DEBUG("Found: " << foundName << " " << stmt.getInt(0));
@@ -221,14 +219,17 @@ SqliteStorage::find(const Name& name, bool exactMatch)
       }
     }
     else if (rc == SQLITE_DONE) {
+      //std::cout<<"Not found in DB, return null" <<std::endl;
       return nullptr;
     }
     else {
       NDN_LOG_DEBUG("Database query failure rc:" << rc);
       NDN_THROW(Error("Database query failure"));
+      return nullptr;
     }
   }
   else {
+    //std::cout<<"DB execute error" <<std::endl;
     NDN_LOG_DEBUG("select bind error");
     NDN_THROW(Error("select bind error"));
   }

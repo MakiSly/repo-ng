@@ -216,10 +216,7 @@ void
 Consumer::readData(const Data& data)
 {
   const auto& content = data.getContent();
-  //#################################################################3
-  
   m_os.write(reinterpret_cast<const char*>(content.value()), content.value_size());
-  //#################################################################3
   m_totalSize += content.value_size();
   if (m_verbose) {
     std::cerr << "LOG: received data = " << data.getName() << std::endl;

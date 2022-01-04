@@ -132,7 +132,8 @@ private:  // segmented data fetching
    * @brief fetch segmented data
    */
   void
-  onSegmentData(ndn::util::SegmentFetcher& fetcher, const Data& data, ProcessId processId);
+  onSegmentData(ndn::util::SegmentFetcher& fetcher, const Data& data, ProcessId processId,
+                                const ndn::mgmt::CommandContinuation& done);
 
   /**
    * @brief handle when fetching segmented data timeout
@@ -144,7 +145,8 @@ private:  // segmented data fetching
    * @brief initiate fetching segmented data
    */
   void
-  segInit(ProcessId processId, const RepoCommandParameter& parameter);
+  segInit(ProcessId processId, const RepoCommandParameter& parameter,
+                                const ndn::mgmt::CommandContinuation& done);
 
   void
   processSegmentedInsertCommand(const Interest& interest, RepoCommandParameter& parameter,
